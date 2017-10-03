@@ -106,10 +106,10 @@ void Renderable::set_up_uniform_listeners()
 	}
 }
 
-void Renderable::update_uniforms(Camera *camera, const std::string &render_pass_name) { 
+void Renderable::update_uniforms(Camera &camera, const std::string &render_pass_name) { 
 	// Let's only actually update the normal matrix value based on world and view matrix if the shader use it.
 	if (material->has_property(GM_PROPERTY_NORMAL_MATRIX)) {
-		update_normal_matrix(camera->get_view_matrix());
+		update_normal_matrix(camera.get_view_matrix());
 	}
 
 	uniforms_for_render_pass[render_pass_name].update_uniforms(); 
@@ -121,6 +121,14 @@ void Renderable::update_normal_matrix(const glm::mat4 &view_matrix) {
 
 glm::mat3 Renderable::make_normal_matrix(const glm::mat4 &view_matrix) const {
 	return glm::inverseTranspose(glm::mat3(view_matrix * world_matrix_property.get()));
+}
+
+void Renderable::set_render_layers(unsigned int new_render_layers) {
+	render_system->remove_renderable(this);
+
+	render_layers = new_render_layers;
+
+	render_system->add_renderable(this);
 }
 
 } // namespace Framework

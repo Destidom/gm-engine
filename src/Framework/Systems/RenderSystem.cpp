@@ -1,9 +1,12 @@
 #include "GM/Framework/Systems/RenderSystem.h"
 #include "GM/Framework/Components/Camera.h"
+#include "GM/Framework/Components/Light.h"
 #include "GM/Framework/Components/IRenderable.h"
 #include "GM/Framework/Components/IRenderPassComponent.h"
 #include "GM/Framework/Utilities/Material.h"
 #include "GM/Framework/Utilities/Mesh.h"
+#include "GM/Framework/Utilities/CameraMatricesUbo.h"
+#include "GM/Framework/Utilities/LightListUbo.h"
 
 #include "GM/Core/GL/FramebufferObject.h"
 #include "GM/Core/GL/Render.h"
@@ -54,29 +57,15 @@ void RenderSystem::add_camera(Camera *camera) {
 
 	if (std::find(cameras.begin(), cameras.end(), camera) == cameras.end()) {
 		cameras.push_back(camera);
-		std::sort(
-			cameras.begin(),
-			cameras.end(),
-
-			[](const Camera* cam1, const Camera* cam2) -> bool {
-				return cam1->get_depth() < cam2->get_depth();
-			}
-		);
 
 		for (auto &layer_index : bit_index_maker(layer_bits)) {
 			auto &depth_sorted_cameras_in_layer = cameras_in_layers[layer_index];
 
 			depth_sorted_cameras_in_layer.push_back(camera);
-			std::sort(
-				depth_sorted_cameras_in_layer.begin(),
-				depth_sorted_cameras_in_layer.end(),
-
-				[](const Camera* cam1, const Camera* cam2) -> bool {
-					return cam1->get_depth() < cam2->get_depth();
-				}
-			);
 		}
 	}
+
+	sort_cameras();
 }
 
 void RenderSystem::remove_camera(Camera *camera) {
@@ -94,6 +83,28 @@ void RenderSystem::remove_camera(Camera *camera) {
 				depth_sorted_cameras.erase(iter);
 			}
 		}
+	}
+}
+
+void RenderSystem::sort_cameras() {
+	std::sort(
+		cameras.begin(),
+		cameras.end(),
+
+		[](const Camera* cam1, const Camera* cam2) -> bool {
+			return cam1->get_depth() < cam2->get_depth();
+		}
+	);
+
+	for (auto &depth_sorted_cameras_in_layer : cameras_in_layers) {
+		std::sort(
+			depth_sorted_cameras_in_layer.begin(),
+			depth_sorted_cameras_in_layer.end(),
+
+			[](const Camera* cam1, const Camera* cam2) -> bool {
+				return cam1->get_depth() < cam2->get_depth();
+			}
+		);
 	}
 }
 
@@ -139,16 +150,17 @@ void RenderSystem::render() {
 	// Remember that cameras are depth sorted, start at minimal depth and go upwards
 	for (Camera *cam : cameras)
 	{
+		prepare_ubos(*cam);
 		for (IRenderPassComponent *render_pass : cam->get_render_pass_sequence())
 		{
-			render_pass->pass(this);
+			render_pass->pass(*this);
 		}
 	}
 
 }
 
 // Called by render passes
-void RenderSystem::pass(Camera * const camera, const std::string &render_pass_name, unsigned int accepted_layers)
+void RenderSystem::pass(Camera &camera, const std::string &render_pass_name, unsigned int accepted_layers)
 {
 
 	MaterialPtr active_material = nullptr;
@@ -157,7 +169,7 @@ void RenderSystem::pass(Camera * const camera, const std::string &render_pass_na
 	Core::VertexArrayObjectPtr active_vao = nullptr;
 	Core::ShaderPtr active_shader = nullptr;
 
-	for (unsigned int layer : bit_index_maker(camera->get_render_layers() & accepted_layers))
+	for (unsigned int layer : bit_index_maker(camera.get_render_layers() & accepted_layers))
 	{
 		const auto& bucket = buckets[layer];
 
@@ -249,5 +261,18 @@ void RenderSystem::resize(int width, int height)
 	for (Camera *cam : cameras)
 	{
 		cam->set_projection(width, height);
+	}
+}
+
+void RenderSystem::prepare_ubos(const Camera &active_camera)
+{
+	if (camera_matrices_ubo != nullptr)
+	{
+		camera_matrices_ubo->update(active_camera);
+	}
+
+	if (light_list_ubo != nullptr)
+	{
+		light_list_ubo->update(active_camera, lights);
 	}
 }
